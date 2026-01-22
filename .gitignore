@@ -4,8 +4,13 @@ __pycache__/
 .venv/
 venv/
 
-# Data & outputs
+# Data, models & outputs
 data/
+model/
+*.h5
+*.pt
+*.model
+*.sav
 *.csv
 *.log
 *.tmp
