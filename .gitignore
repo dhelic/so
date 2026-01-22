@@ -4,13 +4,8 @@ __pycache__/
 .venv/
 venv/
 
-# Data, models & outputs
+# Data & outputs
 data/
-model/
-*.h5
-*.pt
-*.model
-*.sav
 *.csv
 *.log
 *.tmp
@@ -21,4 +16,3 @@ model/
 # OS / editor noise
 .DS_Store
 .vscode/
-
