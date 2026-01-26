@@ -3,12 +3,13 @@ import seaborn as sns
 import pandas as pd
 import statsmodels.formula.api as smf
 from bs4 import BeautifulSoup
+from pathlib import Path
 
 
 LAUNCH = '2022-11-30'
 
 
-def load_data(filename='data/csv/posts_selected.csv'):
+def load_data(filename='data/csv/final/posts_selected.csv'):
     """
     Loads the data from the specified csv file and converts the CreationDate column to datetime.
     """
@@ -166,7 +167,9 @@ def plot_ts(treated, control, y, title, filename, ylabel='Count'):
     plt.tight_layout()
 
     # save the plot
-    plt.savefig('figures/weekly/' + filename)
+    filepath = Path('figures/weekly/' + filename)
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(filepath)
 
     plt.show()
     plt.close()
@@ -223,7 +226,9 @@ def plot_did(df, title, filename):
     plt.tight_layout()
 
     # save the plot
-    plt.savefig('figures/did/' + filename)
+    figures_dir = Path('figures/did/')
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    plt.savefig(figures_dir / filename)
 
     plt.show()
     plt.close()

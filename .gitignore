@@ -6,6 +6,7 @@ venv/
 
 # Data & outputs
 data/
+figures/
 *.csv
 *.log
 *.tmp
