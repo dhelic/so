@@ -1,9 +1,13 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
+import numpy as np
 import statsmodels.formula.api as smf
+import statsmodels.api as sm
+import patsy
 from bs4 import BeautifulSoup
 from pathlib import Path
+from pandas.tseries.offsets import DateOffset
 
 
 LAUNCH = '2022-11-30'
@@ -175,6 +179,15 @@ def plot_ts(treated, control, y, title, filename, ylabel='Count'):
     plt.close()
 
 
+def did_prepare_data(df, type=None):
+    df['log_lc'] = np.log(df['line_count'])
+    df['D'] = df['CreationDate'].dt.dayofweek
+
+    if type == 'tags':
+        df['loc'] = df['code'].str.count('\n') + 1
+        df['log_loc'] = np.log(df['loc'])
+
+
 def did(outcome, data):
     """
     Estimates the difference-in-differences model for the specified outcome variable.
@@ -190,6 +203,88 @@ def did(outcome, data):
     lr = smf.ols(formula = f'{outcome}_std ~ T * P + W', data=df)
     results = lr.fit()
     return results
+
+
+def did_design_matrix(outcome, data):
+    """
+    Creates the design matrix for the difference-in-differences model for the specified outcome variable.
+    """
+
+    formula = f'{outcome} ~ T * P + W'
+    y_mat, X = patsy.dmatrices(formula, data, return_type='dataframe')
+
+    # extract outcome as Series
+    y_raw = y_mat.iloc[:, 0]
+
+    return X, y_raw
+
+
+def did_ols(X, y, masks, start_dates):
+    """
+    Fits the difference-in-differences model using the design matrix and outcome variable.
+    """
+
+    res = []    
+    for i, m in enumerate(masks):
+        if i%50 == 0:
+            print(f'Step {i}')
+
+        Xi = X.loc[m]
+        yi = y.loc[m]
+
+        # standardize outcome
+        y_std = (yi - yi.mean()) / yi.std()
+
+        # cluster by calendar date (recommended)
+        #g = questions.loc[m, 'date']
+
+        reg_results = sm.OLS(y_std, Xi).fit()
+        #results = sm.OLS(y_std, Xi).fit(cov_type='cluster', cov_kwds={'groups': g})
+
+        res.append({'date': start_dates[i], 'coef': reg_results.params['T:P'],
+                'ci_l': reg_results.conf_int().loc['T:P'][0],
+                'ci_u': reg_results.conf_int().loc['T:P'][1]})
+        
+        #res.append({'date': start_dates[i], 'coef': results.params['P'],
+        #           'ci_l': results.conf_int().loc['P'][0],
+        #           'ci_u': results.conf_int().loc['P'][1]})
+
+    res_df = pd.DataFrame(res)
+    return res_df
+
+
+def rolling_window_masks(data, pre_start='2022-05-30', pre_end='2022-11-30', pre_start_c='2021-05-31', pre_end_c='2021-11-30', end='2023-04-29', window_days=31):
+    """
+    Creates rolling window masks for the specified start and end dates, window size, and step size.
+    """
+
+    pre_start = pd.Timestamp(pre_start)
+    pre_end = pd.Timestamp(pre_end)
+    pre_start_c = pd.Timestamp(pre_start_c)
+    pre_end_c = pd.Timestamp(pre_end_c)
+
+    start_dates = pd.date_range(start=pre_end, end=pd.Timestamp(end), freq='D')
+
+    masks = []
+    for s in start_dates:
+        e = s + pd.Timedelta(days=window_days)
+
+        # treated post
+        post_t = (data['CreationDate'] >= s) & (data['CreationDate'] <= e) & (data['T'] == 1)
+
+        # control post (one year earlier)
+        post_c = ((data['CreationDate'] >= s - DateOffset(days=365)) & (data['CreationDate'] <= e - DateOffset(days=365)) &(data['T'] == 0))
+
+        # treated pre
+        pre_t = ((data['CreationDate'] >= pre_start) & (data['CreationDate'] <= pre_end) & (data['T'] == 1))
+
+        # control pre
+        pre_c = ((data['CreationDate'] >= pre_start_c) & (data['CreationDate'] <= pre_end_c) & (data['T'] == 0))
+
+        mask = post_t | post_c | pre_t | pre_c
+        masks.append(mask)
+
+    return start_dates, masks
 
 
 def plot_did(df, title, filename):
@@ -226,9 +321,9 @@ def plot_did(df, title, filename):
     plt.tight_layout()
 
     # save the plot
-    figures_dir = Path('figures/did/')
-    figures_dir.mkdir(parents=True, exist_ok=True)
-    plt.savefig(figures_dir / filename)
+    filepath = Path('figures/did/' + filename)
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(filepath)
 
     plt.show()
     plt.close()

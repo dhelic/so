@@ -1,4 +1,3 @@
-from fileinput import filename
 import xml.etree.ElementTree as ET
 import html
 import csv
