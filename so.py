@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import normalize
 import statsmodels.formula.api as smf
 import statsmodels.api as sm
 import patsy
@@ -13,13 +14,13 @@ from pandas.tseries.offsets import DateOffset
 LAUNCH = '2022-11-30'
 
 
-def load_data(filename='data/csv/final/posts_selected.csv'):
+def load_data(filename='data/csv/final/posts_selected.csv', date_column='CreationDate'):
     """
     Loads the data from the specified csv file and converts the CreationDate column to datetime.
     """
     
     df = pd.read_csv(filename)
-    df['CreationDate'] = pd.to_datetime(df['CreationDate'])
+    df[date_column] = pd.to_datetime(df[date_column])
     return df
 
 
@@ -182,11 +183,26 @@ def plot_ts(treated, control, y, title, filename, ylabel='Count'):
 def did_prepare_data(df, type=None):
     df['log_lc'] = np.log(df['line_count'])
     df['D'] = df['CreationDate'].dt.dayofweek
+    df['date'] = df['CreationDate'].dt.normalize()
 
     if type == 'tags':
         df['loc'] = df['code'].str.count('\n') + 1
         df['log_loc'] = np.log(df['loc'])
 
+
+def prepare_daily_data(data, columns):
+    agg_dict = {}
+    for col in columns:
+        agg_dict[f'{col}_n'] = (col, 'count')
+        agg_dict[f'{col}_sum'] = (col, 'sum')
+        agg_dict[f'{col}_bar'] = (col, 'mean')
+        agg_dict[f'{col}_ss'] = (col, lambda x: (x*x).sum())
+    for col in ['T', 'P', 'W', 'D']:
+        agg_dict[col] = (col, 'first')
+
+    daily = (data.groupby(['date'], as_index=False).agg(**agg_dict))
+    return daily
+    
 
 def did(outcome, data):
     """
@@ -211,6 +227,7 @@ def did_design_matrix(outcome, data):
     """
 
     formula = f'{outcome} ~ T * P + W'
+    #formula = f'{outcome} ~ T * P + C(W) + C(D)'
     y_mat, X = patsy.dmatrices(formula, data, return_type='dataframe')
 
     # extract outcome as Series
@@ -235,25 +252,47 @@ def did_ols(X, y, masks, start_dates):
         # standardize outcome
         y_std = (yi - yi.mean()) / yi.std()
 
-        # cluster by calendar date (recommended)
-        #g = questions.loc[m, 'date']
-
         reg_results = sm.OLS(y_std, Xi).fit()
-        #results = sm.OLS(y_std, Xi).fit(cov_type='cluster', cov_kwds={'groups': g})
-
         res.append({'date': start_dates[i], 'coef': reg_results.params['T:P'],
                 'ci_l': reg_results.conf_int().loc['T:P'][0],
                 'ci_u': reg_results.conf_int().loc['T:P'][1]})
-        
-        #res.append({'date': start_dates[i], 'coef': results.params['P'],
-        #           'ci_l': results.conf_int().loc['P'][0],
-        #           'ci_u': results.conf_int().loc['P'][1]})
 
     res_df = pd.DataFrame(res)
     return res_df
 
 
-def rolling_window_masks(data, pre_start='2022-05-30', pre_end='2022-11-30', pre_start_c='2021-05-31', pre_end_c='2021-11-30', end='2023-04-29', window_days=31):
+def did_wls(df, X, y, masks, start_dates, outcome):
+    """
+    Fits the difference-in-differences model on daily aggregatesusing the design matrix and outcome variable.
+    """
+
+    res = []
+    for i, mask in enumerate(masks):
+        Xi = X.loc[mask]
+        yi = y.loc[mask]
+
+        dw = df[mask]
+
+        # standardize outcome
+        w = dw[f'{outcome}_n'].to_numpy(dtype=float)
+        N = dw[f'{outcome}_n'].sum()
+        sumy = dw[f'{outcome}_sum'].sum()
+        sumy2 = dw[f'{outcome}_ss'].sum()
+        var = (sumy2 - (sumy**2) / N) / (N - 1)   # ddof=1
+        sd = np.sqrt(max(var, 1e-12))
+        mu = sumy / N
+        y_std = (yi - mu) / sd
+
+        reg_results = sm.WLS(y_std, Xi, weights=w).fit()
+        res.append({'date': start_dates[i], 'coef': reg_results.params['T:P'],
+                    'ci_l': reg_results.conf_int().loc['T:P'][0],
+                    'ci_u': reg_results.conf_int().loc['T:P'][1]})
+
+    res_df = pd.DataFrame(res)
+    return res_df
+
+
+def rolling_window_masks(data, data_column='CreationDate', normalized=False, pre_start='2022-05-30', pre_end='2022-11-30', pre_start_c='2021-05-31', pre_end_c='2021-11-30', end='2023-04-29', window_days=31):
     """
     Creates rolling window masks for the specified start and end dates, window size, and step size.
     """
@@ -270,16 +309,21 @@ def rolling_window_masks(data, pre_start='2022-05-30', pre_end='2022-11-30', pre
         e = s + pd.Timedelta(days=window_days)
 
         # treated post
-        post_t = (data['CreationDate'] >= s) & (data['CreationDate'] <= e) & (data['T'] == 1)
+        post_t = (data[data_column] >= s) & (data[data_column] <= e) & (data['T'] == 1)
 
         # control post (one year earlier)
-        post_c = ((data['CreationDate'] >= s - DateOffset(days=365)) & (data['CreationDate'] <= e - DateOffset(days=365)) &(data['T'] == 0))
+        post_c = ((data[data_column] >= s - DateOffset(days=365)) & (data[data_column] <= e - DateOffset(days=365)) &(data['T'] == 0))
+
+        if normalized:
+            offset = DateOffset(days=1)
+        else:
+            offset = DateOffset(days=0)
 
         # treated pre
-        pre_t = ((data['CreationDate'] >= pre_start) & (data['CreationDate'] <= pre_end) & (data['T'] == 1))
+        pre_t = ((data[data_column] >= pre_start) & (data[data_column] <= pre_end - offset) & (data['T'] == 1))
 
         # control pre
-        pre_c = ((data['CreationDate'] >= pre_start_c) & (data['CreationDate'] <= pre_end_c) & (data['T'] == 0))
+        pre_c = ((data[data_column] >= pre_start_c) & (data[data_column] <= pre_end_c - offset) & (data['T'] == 0))
 
         mask = post_t | post_c | pre_t | pre_c
         masks.append(mask)
