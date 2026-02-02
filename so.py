@@ -1,11 +1,12 @@
+import ast
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import normalize
 import statsmodels.formula.api as smf
 import statsmodels.api as sm
 import patsy
+import ast
 from bs4 import BeautifulSoup
 from pathlib import Path
 from pandas.tseries.offsets import DateOffset
@@ -226,8 +227,8 @@ def did_design_matrix(outcome, data):
     Creates the design matrix for the difference-in-differences model for the specified outcome variable.
     """
 
-    formula = f'{outcome} ~ T * P + W'
-    #formula = f'{outcome} ~ T * P + C(W) + C(D)'
+    #formula = f'{outcome} ~ T * P + W'
+    formula = f'{outcome} ~ T * P + C(W) + C(D)'
     y_mat, X = patsy.dmatrices(formula, data, return_type='dataframe')
 
     # extract outcome as Series
@@ -283,7 +284,7 @@ def did_wls(df, X, y, masks, start_dates, outcome):
         mu = sumy / N
         y_std = (yi - mu) / sd
 
-        reg_results = sm.WLS(y_std, Xi, weights=w).fit()
+        reg_results = sm.WLS(y_std, Xi, weights=w).fit(cov_type='HAC', cov_kwds={'maxlags': 7})
         res.append({'date': start_dates[i], 'coef': reg_results.params['T:P'],
                     'ci_l': reg_results.conf_int().loc['T:P'][0],
                     'ci_u': reg_results.conf_int().loc['T:P'][1]})
@@ -387,3 +388,36 @@ def parallel_trend(outcome, data):
     lr = smf.ols(formula = f'{outcome}_std ~ T * W', data=df)
     results = lr.fit()
     return results
+
+
+def store_results(results, filename):
+    """
+    Stores the summary of the regression results in a csv file.
+    """
+
+    filepath = Path('results/' + filename)
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+
+    results_str = {
+        str(k): v for k, v in results.items()
+    }
+
+    stacked = (pd.concat(results_str, names=['outcome']).reset_index(level=0))
+    stacked.to_csv(filepath, index=False)
+
+
+def read_results(filename):
+    """
+    Reads the summary of the regression results from a csv file.
+    """
+
+    filepath = Path('results/' + filename)
+    results = pd.read_csv(filepath)
+    results['date'] = pd.to_datetime(results['date'])
+
+    out = {}
+    for k_str, df in results.groupby('outcome', sort=False):
+        k = ast.literal_eval(k_str)
+        out[k] = df.drop(columns='outcome').reset_index(drop=True)
+
+    return out
