@@ -6,7 +6,6 @@ import numpy as np
 import statsmodels.formula.api as smf
 import statsmodels.api as sm
 import patsy
-import ast
 from bs4 import BeautifulSoup
 from pathlib import Path
 from pandas.tseries.offsets import DateOffset
@@ -421,3 +420,90 @@ def read_results(filename):
         out[k] = df.drop(columns='outcome').reset_index(drop=True)
 
     return out
+
+
+def block_bootstrap(daily, group_col='T', block_len=7, seed=None):
+    """
+    Block bootstrap daily data within each group (e.g. T=0, T=1), then concatenate.
+    """
+    
+    rng = np.random.default_rng(seed)
+    out = []
+
+    for _, dfg in daily.groupby(group_col):
+        dfg = dfg.sort_values('date').reset_index(drop=True)
+        n = len(dfg)
+
+        starts = np.arange(0, n - block_len + 1)
+        n_blocks = int(np.ceil(n / block_len))
+        chosen = rng.choice(starts, size=n_blocks, replace=True)
+        idx = np.concatenate([np.arange(s, s + block_len) for s in chosen])[:n]
+
+        out.append(dfg.iloc[idx].copy())
+
+    boot = pd.concat(out, ignore_index=True)
+    boot = boot.sort_values([group_col, 'date']).reset_index(drop=True)
+    return boot
+
+
+def permute_treatment(daily, strata=('W', 'D'), seed=None):
+    """
+    Permutation for 2-year design: within each stratum, randomly swap the rows
+    between T=0 and T=1 with prob 0.5.
+
+    This keeps the marginal distribution within strata and preserves calendar structure.
+    """
+    
+    rng = np.random.default_rng(seed)
+    d = daily.copy()
+
+    swap_cols = [c for c in daily.columns if c not in ["T", "date"]]
+    out = []
+    for _, g in d.groupby(list(strata), sort=False):
+        g = g.sort_values("T").copy()
+
+        # If we have exactly two rows (T=0 and T=1), swap with prob 0.5
+        if len(g) == 2 and set(g["T"]) == {0, 1}:
+            if rng.random() < 0.5:
+                # swap all outcome/sufficient-stat columns between the two rows,
+                # leaving T as-is (equivalently swapping the labels)
+                g.loc[g.index[[0, 1]], swap_cols] = g.loc[g.index[[1, 0]], swap_cols].to_numpy()
+
+        # If not exactly two rows, do nothing (or you can decide to handle it differently)
+        out.append(g)
+
+    return pd.concat(out, ignore_index=True)
+
+
+def resample_statistic(daily, outcome, sample_function=block_bootstrap, n_resamples=1000, debug=True):
+    """
+    Computation of a resampling statistic.
+    """
+    
+    results = []
+    start_dates, masks = rolling_window_masks(daily, data_column='date', normalized=True, window_days=30)
+    for i in range(n_resamples):
+        if debug and i % 50 == 0:
+            print(f'Iteration: {i}/{n_resamples}')
+        sample = sample_function(daily)
+        X, y = did_design_matrix(f'{outcome}_bar', sample)
+        res = did_wls(sample, X, y, masks, start_dates, outcome)
+        results.append(res)
+    
+    return results
+
+
+def effect_streak(data, col='ci_l'):
+    """
+    Longest contiguous streak of the DiD coefficient where df[col] > 0.
+    """
+    x = data.sort_values('date')[col].to_numpy()
+
+    best = cur = 0
+    for v in x:
+        if np.isfinite(v) and v > 0:
+            cur += 1
+            best = max(best, cur)
+        else:
+            cur = 0
+    return best
