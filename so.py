@@ -221,13 +221,16 @@ def did(outcome, data):
     return results
 
 
-def did_design_matrix(outcome, data):
+def did_design_matrix(outcome, data, events=False):
     """
     Creates the design matrix for the difference-in-differences model for the specified outcome variable.
     """
 
     #formula = f'{outcome} ~ T * P + W'
-    formula = f'{outcome} ~ T * P + C(W) + C(D)'
+    if events:
+        formula = f'{outcome} ~ T * P + C(W) + C(D) + C(E)'
+    else:
+        formula = f'{outcome} ~ T * P + C(W) + C(D)'
     y_mat, X = patsy.dmatrices(formula, data, return_type='dataframe')
 
     # extract outcome as Series
@@ -506,4 +509,13 @@ def effect_streak(data, col='ci_l'):
             best = max(best, cur)
         else:
             cur = 0
-    return best
+    return best / len(data)
+
+
+def max_rolling_mean(df, col='coef', L=30):
+    x = df.sort_values('date')[col]
+    return x.rolling(L, min_periods=L).mean().max()
+
+
+def auc(df, col='coef'):
+    return df.sort_values('date')[col].sum()
