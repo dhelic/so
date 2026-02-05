@@ -51,6 +51,31 @@ def parse_xml(xml_dir, csv_dir):
                     print(count)
 
 
+def parse_users_xml(filename, csv_dir):
+    fields = ['Id', 'Reputation', 'Views', 'UpVotes', 'DownVotes']
+    csv_path = csv_dir / 'users.csv'
+
+    count = 0
+    with open(csv_path, 'w', encoding='utf-8') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fields, quotechar='"', quoting=csv.QUOTE_ALL)
+        writer.writeheader()
+        
+        for line in read_xml_file(filename):
+            user = {field: '' for field in fields}
+
+            if line.startswith('<users>') or line.startswith('</users>') or line.lstrip('\ufeff').startswith('<?xml'):
+                print('Skipping.')
+            else:
+                row = ET.fromstring(line)
+                for key in user:
+                    user[key] = row.attrib[key]
+                writer.writerow(user)
+            
+            count += 1
+            if count % 100000 == 0:
+                print(count)
+
+
 def merge_csv(csv_dir, filename):
     all_files = list(csv_dir.glob('*.csv'))
     df_list = [pd.read_csv(file) for file in all_files]
@@ -81,7 +106,7 @@ def select_csv(csv_directory, filename):
     print(df.info())
 
     df['CreationDate'] = pd.to_datetime(df['CreationDate'])
-    df = df[['PostTypeId', 'AcceptedAnswerId', 'CreationDate', 'Score', 'ViewCount', 'AnswerCount', 'CommentCount', 'FavoriteCount', 'Body', 'Title', 'Tags']]
+    df = df[['PostTypeId', 'AcceptedAnswerId', 'CreationDate', 'Score', 'ViewCount', 'AnswerCount', 'CommentCount', 'FavoriteCount', 'Body', 'OwnerUserId', 'Title', 'Tags']]
 
     # select relevant data
     df = so.select_data(df)
@@ -145,5 +170,21 @@ def prepare_dataset():
     extract_tags_csv(csv_directory, filename)
 
 
+def prepare_users():
+    filename = 'data/Users.xml'
+    csv_directory = 'data/csv/users/'
+    csv_dir = Path(csv_directory)
+    csv_dir.mkdir(parents=True, exist_ok=True)
+
+    parse_users_xml(filename, csv_dir)
+
+
 if __name__ == '__main__':
-   prepare_dataset()
+    prep_dataset = True
+    prep_users = False
+
+    if prep_dataset:
+        prepare_dataset()
+    
+    if prep_users:
+        prepare_users()
