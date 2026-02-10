@@ -190,13 +190,24 @@ def did_prepare_data(df, type=None):
         df['log_loc'] = np.log(df['loc'])
 
 
-def prepare_daily_data(data, columns):
+def prepare_daily_data(data, columns, weights=None):
     agg_dict = {}
-    for col in columns:
-        agg_dict[f'{col}_n'] = (col, 'count')
-        agg_dict[f'{col}_sum'] = (col, 'sum')
-        agg_dict[f'{col}_bar'] = (col, 'mean')
-        agg_dict[f'{col}_ss'] = (col, lambda x: (x*x).sum())
+
+    if weights is not None:
+        w = data[weights].astype(float)
+        for col in columns:
+            agg_dict[f'{col}_n'] = (col, 'count')
+            data[f'{col}_w'] = w * data[col]
+            agg_dict[f'{col}_sum'] = (f'{col}_w', 'sum')
+            agg_dict[f'{col}_bar'] = (f'{col}_w', 'mean')
+            agg_dict[f'{col}_ss'] = (f'{col}_w', lambda x: (x*x).sum())
+    else:
+        for col in columns:
+            agg_dict[f'{col}_n'] = (col, 'count')
+            agg_dict[f'{col}_sum'] = (col, 'sum')
+            agg_dict[f'{col}_bar'] = (col, 'mean')
+            agg_dict[f'{col}_ss'] = (col, lambda x: (x*x).sum())
+    
     for col in ['T', 'P', 'W', 'D']:
         agg_dict[col] = (col, 'first')
 
