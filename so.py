@@ -171,6 +171,8 @@ def plot_ts(treated, control, y, title, filename, ylabel='Count'):
     # set tight layout
     plt.tight_layout()
 
+    #plt.ylim(bottom=0)
+
     # save the plot
     filepath = Path('figures/weekly/' + filename)
     filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -393,13 +395,13 @@ def parallel_trend(outcome, data):
     
     # copy the df here and then add the columns to the copy
     # this surpresses the SettingWithCopyWarning
-    df = data[[outcome, 'T', 'W']].copy()
+    df = data[[outcome, 'T', 'W', 'D']].copy()
 
     # standardize the outcome variable
     df[f'{outcome}_std'] = (df[outcome] - df[outcome].mean()) / df[outcome].std()
     
-    lr = smf.ols(formula = f'{outcome}_std ~ T * W', data=df)
-    results = lr.fit()
+    lr = smf.ols(formula = f'{outcome}_std ~ T : W + C(D) + C(W)', data=df)
+    results = lr.fit(cov_type='HAC', cov_kwds={'maxlags':7})
     return results
 
 
