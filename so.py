@@ -421,14 +421,16 @@ def store_results(results, filename):
     stacked.to_csv(filepath, index=False)
 
 
-def read_results(filename):
+def read_results(filename, resampled=False):
     """
     Reads the summary of the regression results from a csv file.
     """
 
     filepath = Path('results/' + filename)
     results = pd.read_csv(filepath)
-    results['date'] = pd.to_datetime(results['date'])
+
+    if not resampled:
+        results['date'] = pd.to_datetime(results['date'])
 
     out = {}
     for k_str, df in results.groupby('outcome', sort=False):
@@ -507,7 +509,6 @@ def resample_statistic(daily, outcome, sample_function=block_bootstrap, n_resamp
         results.append(res)
     
     return results
-
 
 def effect_streak(data, col='ci_l'):
     """
