@@ -133,7 +133,7 @@ def ts(df):
     return df_T_resampled, df_C_resampled
 
 
-def plot_ts(treated, control, y, title, filename, ylabel='Count'):
+def plot_ts(treated, control, y, title, filename, ylabel='Count', ylim=None):
     """
     Plots the time series of the treated and control groups with the specified y variable. The time series are aligned for a better comparison.
     The plot is saved in the figures folder.
@@ -171,6 +171,8 @@ def plot_ts(treated, control, y, title, filename, ylabel='Count'):
     # set tight layout
     plt.tight_layout()
 
+    if ylim is not None:
+        plt.ylim(ylim)
     #plt.ylim(bottom=0)
 
     # save the plot
