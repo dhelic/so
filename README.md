@@ -1,1 +1,1 @@
-This is reproducability code for the paper "Stack Overflow Is Not Dead Yet: Crowd Answers Still Matter" [https://arxiv.org/abs/2509.05879].
+This is reproducability code for the paper "Stack Overflow Is Not Dead Yet: Crowd Answers Still Matter" [https://arxiv.org/abs/2509.05879]. The data analyzed in the paper is available at [https://archive.org/details/stackexchange].
